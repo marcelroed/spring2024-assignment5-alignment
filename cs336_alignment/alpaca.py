@@ -17,7 +17,7 @@ class AlpacaEval:
         split_df = pd.read_json(alpaca_path, lines=True)
         self.data = split_df
         
-        with open('cs336_alignment/prompts/gsm8k.prompt', 'r') as f:
+        with open('cs336_alignment/prompts/alpaca_eval.prompt', 'r') as f:
             self.prompt_template = f.read()
         
     def format_prompt(self, prompt: dict[str, Any]):
@@ -25,10 +25,10 @@ class AlpacaEval:
     
     def evaluate_llm(self, llm_closure):
         result_df = pd.DataFrame()
-        # all_rows = [row for i, row in self.data.iterrows()]
-        # all_prompts = [self.format_prompt(dict(row)) for row in all_rows][:5]
+        all_rows = [row for i, row in self.data.iterrows()]
+        all_prompts = [self.format_prompt(dict(row)) for row in all_rows]
         result_df = self.data.copy(deep=True)
-        all_prompts = self.data['instruction']
+        # all_prompts = self.data['instruction']
 
         # result_df[''] = all_prompts
         # result_df['answer'] = [row['answer'] for row in all_rows]
@@ -62,14 +62,14 @@ class AlpacaEval:
         out_dir = Path('output/')
         out_dir.mkdir(exist_ok=True)
 
-        result_df.to_json(out_dir / 'alpaca_eval_llama8b.json')
+        result_df.to_json(out_dir / 'alpaca_eval_llama8b.json', orient='records', lines=False)
 
 
 
 def main():
     alpaca_eval = AlpacaEval()
     # print(gsm8k.data['test'].head())
-    llm = get_llama8b_multi(num_gpus=1)
+    llm = get_llama8b_multi(num_gpus=8)
 
     llm_closure = lambda prompts: [output.outputs[0].text for output in llm.init_and_generate(prompts, greedy_sampling_params)]
 
