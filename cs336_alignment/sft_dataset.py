@@ -25,32 +25,46 @@ class PackedSFTDataset(Dataset):
         "input_ids" contains the token IDs for the language modeling inputs, and "labels" contains
         the token IDs for the language modeling labels.
     """
-    def __init__(self, tokenizer: PreTrainedTokenizerBase, dataset_path: str, seq_length: int, shuffle: bool):
+    def __init__(self, tokenizer: PreTrainedTokenizerBase, dataset_path: str, seq_length: int, shuffle: bool, world_size=1, rank=0):
         self.tokenizer = tokenizer
         self.dataset_path = dataset_path
 
-        df = pd.read_json(dataset_path, dtype={'prompt': str, 'response': str}, lines=True)
+        if dataset_path.endswith('safety_augmented_ultrachat_200k_single_turn/train.jsonl'):
+            df = pd.read_json('data/safety_augmented_ultrachat_200k_single_turn/train_tokenized.jsonl', lines=True)
+        else:  # Pretokenized in this case
+            df = pd.read_json(dataset_path, dtype={'prompt': str, 'response': str}, lines=True)
+            print('Finished reading JSON')
+
+            prompts, responses = df['prompt'], df['response']
+
+            with open('cs336_alignment/prompts/alpaca_sft.prompt', 'r') as f:
+                prompt_template = f.read()
+                prompt_template = f'{prompt_template}{tokenizer.eos_token}'
+
+            full_prompts = [prompt_template.format(instruction=prompt, response=response) for prompt, response in zip(prompts, responses)]
+            tokenized_prompts = tokenizer(full_prompts).input_ids
+            df['tokenized'] = tokenized_prompts
+            df = df[['tokenized']]
 
         if shuffle:
-            df = df.sample(frac=1).reset_index(drop=True)
+            df = df.sample(frac=1, random_state=0).reset_index(drop=True)
         
-        # print(df)
+        full_text_tok = torch.concatenate([torch.tensor(arr) for arr in df['tokenized']])
 
-        prompts, responses = df['prompt'], df['response']
 
-        with open('cs336_alignment/prompts/alpaca_sft.prompt', 'r') as f:
-            prompt_template = f.read()
-            prompt_template = f'{prompt_template}{tokenizer.eos_token}'
-        
-        full_prompts = [prompt_template.format(instruction=prompt, response=response) for prompt, response in zip(prompts, responses)]
+        # interleaved = [torch.tensor(elem) for toks in tokenized_prompts for elem in (toks, [tokenizer.bos_token_id])][:-1]
 
-        full_text = tokenizer.bos_token.join(full_prompts)
+        # full_text = tokenizer.bos_token.join(full_prompts)
         # print(full_text)
 
-        full_text_tok = self.tokenizer(full_text).input_ids
+        # full_text_tok = self.tokenizer(full_text).input_ids
+        # print(interleaved)
+        print('Tokenized prompts')
         # print(type(full_text_tok))
 
-        self.tokens = torch.tensor(full_text_tok)
+        chunk_size = len(full_text_tok) // world_size
+
+        self.tokens = full_text_tok[rank * chunk_size:(rank + 1) * chunk_size]
         # print(self.tokens.shape)
 
         self.seq_length = seq_length
