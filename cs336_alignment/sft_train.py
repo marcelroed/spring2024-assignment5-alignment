@@ -117,7 +117,7 @@ def main():
 
             model_engine.step()
             if rank == 0 and (idx % logging_rate == 0):
-                wandb.log({'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']}, step=idx + epoch * len(train_dataset))
+                wandb.log({'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']}, step=idx + epoch * len(train_dataset) // microbatch_size)
             if idx % valid_rate == 0:
                 loss_values = []
                 if rank == 0:
@@ -139,7 +139,7 @@ def main():
                     del val_labels
                     del val_input_ids
                 if rank == 0:
-                    wandb.log({'valid_loss': torch.mean(torch.tensor(loss_values))}, step=idx + epoch * len(train_dataset))
+                    wandb.log({'valid_loss': torch.mean(torch.tensor(loss_values))}, step=idx + epoch * len(train_dataset) // microbatch_size)
                 del loss_values
             del loss
 

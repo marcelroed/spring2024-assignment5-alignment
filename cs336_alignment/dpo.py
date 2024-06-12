@@ -1,5 +1,7 @@
 import torch
 from transformers import PreTrainedTokenizerBase
+from math import log
+import torch.nn.functional as F
 
 def per_instance_dpo_loss(
     lm: torch.nn.Module,
@@ -42,11 +44,12 @@ def per_instance_dpo_loss(
 
     chosen_tokens, rejected_tokens = tokenizer([chosen_prompt, rejected_prompt], return_tensors='pt').input_ids
 
-    chosen_ll = lm(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss
-    rejected_ll = lm(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss
+    chosen_ll = -lm(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss * len(chosen_tokens)
+    rejected_ll = -lm(input_ids=rejected_tokens[:-1], labels=rejected_tokens[1:]).loss * len(rejected_tokens)
 
-    chosen_ref_ll = lm_ref(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss
-    reject_ref_ll = lm_ref(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss
+    chosen_ref_ll = -lm_ref(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss * len(chosen_tokens)
+    reject_ref_ll = -lm_ref(input_ids=rejected_tokens[:-1], labels=rejected_tokens[1:]).loss * len(rejected_tokens)
 
+    log_core = chosen_ll - chosen_ref_ll - rejected_ll + reject_ref_ll
 
-    return - torch.log(torch.sigmoid(beta * (chosen_ll - chosen_ref_ll - rejected_ll + reject_ref_ll)))
+    return -F.logsigmoid(beta * log_core)
