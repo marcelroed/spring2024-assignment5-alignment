@@ -13,11 +13,11 @@ class SST:
             base_path = Path(base_path)
         self.base_path = base_path
 
-        alpaca_path = base_path / f'alpaca_eval.jsonl'
-        split_df = pd.read_json(alpaca_path, lines=True)
+        sst_path = base_path / f'simple_safety_tests.csv'
+        split_df = pd.read_csv(sst_path)
         self.data = split_df
         
-        with open('cs336_alignment/prompts/alpaca_eval.prompt', 'r') as f:
+        with open('cs336_alignment/prompts/sst.prompt', 'r') as f:
             self.prompt_template = f.read()
         
     def format_prompt(self, prompt: dict[str, Any]):
@@ -40,7 +40,7 @@ class SST:
 
         responses = llm_closure(all_prompts)
         result_df['output'] = responses
-        result_df['generator'] = ['llama8b'] * len(responses)
+        # result_df['generator'] = ['llama8b'] * len(responses)
         pprint(responses[:5])
         # parsed_responses = [response for row, response in zip(tqdm(all_rows), responses)]
         # result_df['parsed_response'] = parsed_responses
@@ -62,18 +62,18 @@ class SST:
         out_dir = Path('output/')
         out_dir.mkdir(exist_ok=True)
 
-        result_df.to_json(out_dir / 'alpaca_eval_llama8b.json', orient='records', lines=False)
+        result_df.to_json(out_dir / 'sst_llama8b.jsonl', orient='records', lines=True)
 
 
 
 def main():
-    alpaca_eval = SST()
+    sst = SST()
     # print(gsm8k.data['test'].head())
     llm = get_llama8b_multi(num_gpus=8)
 
     llm_closure = lambda prompts: [output.outputs[0].text for output in llm.init_and_generate(prompts, greedy_sampling_params)]
 
-    alpaca_eval.evaluate_llm(llm_closure)
+    sst.evaluate_llm(llm_closure)
 
 if __name__ == '__main__':
     main()
