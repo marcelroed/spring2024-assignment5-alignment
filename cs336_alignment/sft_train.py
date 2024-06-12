@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 from cs336_alignment.sft_dataset import PackedSFTDataset, iterate_batches
 import deepspeed
+from itertools import islice
 from tqdm import tqdm, trange
 import wandb
 import os
@@ -9,7 +10,7 @@ import os
 
 
 def main():
-    n_epochs = 10
+    n_epochs = 5
     # Needs to be run with deepspeed command
     model_name = 'meta-llama/Meta-Llama-3-8B'
     rank = int(os.environ['RANK'])
@@ -27,7 +28,7 @@ def main():
     print('Loaded dataset')
     total_num_steps = len(train_dataset) * n_epochs
 
-    microbatch_size = 2
+    microbatch_size = 4
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, model_parameters=model.parameters(), config={
         'train_batch_size': 32,
         'train_micro_batch_size_per_gpu': microbatch_size,
@@ -68,11 +69,12 @@ def main():
 
     })
     model_engine: deepspeed.DeepSpeedEngine
-    del model, tokenizer
+    del model
 
     print(f'Rank: {rank}')
 
-    logging_rate = 1
+    logging_rate = 10
+    valid_rate = 1000 
     rank = deepspeed.dist.get_rank()
 
     if rank == 0:
@@ -84,25 +86,63 @@ def main():
             'total_num_steps': total_num_steps,
         })
 
-    for epoch in trange(n_epochs):
-        print(f'Rank {rank} has {len(train_dataset)} examples')
-        for idx, batch in enumerate(tqdm(iterate_batches(train_dataset, batch_size=microbatch_size, shuffle=True))):
+    if rank == 0:
+        epoch_range = trange(n_epochs, desc='Epochs')
+    else:
+        epoch_range = range(n_epochs)
+
+    train_dataloader = iterate_batches(train_dataset, batch_size=microbatch_size, shuffle=True)
+    
+    valid_dataset = PackedSFTDataset(tokenizer=tokenizer, dataset_path='data/safety_augmented_ultrachat_200k_single_turn/test.jsonl.gz', seq_length=512, shuffle=False, world_size=8, rank=rank)
+
+    valid_dataloader = iterate_batches(valid_dataset, batch_size=microbatch_size, shuffle=False)
+
+
+    for epoch in epoch_range:
+        if rank == 0:
+            pbar = enumerate(tqdm(train_dataloader, desc='Training'))
+        else:
+            pbar = enumerate(train_dataloader)
+        for idx, batch in pbar:
             input_ids = batch['input_ids'].cuda()
             labels = batch['labels'].cuda()
 
             outputs = model_engine(input_ids=input_ids, labels=labels)
             loss = outputs.loss
 
-            if rank == 0 and (idx % logging_rate == 0):
-                wandb.log({'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']}, step=idx + epoch * len(train_dataset) // microbatch_size)
-
             model_engine.backward(loss)
-            del loss
             del outputs
             del labels
             del input_ids
 
             model_engine.step()
+            if rank == 0 and (idx % logging_rate == 0):
+                wandb.log({'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']}, step=idx + epoch * len(train_dataset))
+            if idx % valid_rate == 0:
+                loss_values = []
+                if rank == 0:
+                    val_pbar = tqdm(valid_dataloader, desc='Computing validation loss')
+                else:
+                    val_pbar = valid_dataloader
+
+                for val_idx, val_batch in enumerate(val_pbar):
+                    val_input_ids = val_batch['input_ids'].cuda()
+                    val_labels = val_batch['labels'].cuda()
+
+                    val_outputs = model_engine(input_ids=val_input_ids, labels=val_labels)
+                    val_loss = val_outputs.loss.detach()
+
+                    deepspeed.dist.all_reduce(val_loss, op=deepspeed.dist.ReduceOp.AVG)
+                    loss_values.append(val_loss)
+
+                    del val_outputs
+                    del val_labels
+                    del val_input_ids
+                if rank == 0:
+                    wandb.log({'valid_loss': torch.mean(torch.tensor(loss_values))}, step=idx + epoch * len(train_dataset))
+                del loss_values
+            del loss
+
         print(f'Rank {rank} finished epoch {epoch} after {idx} microbatches')
     model_engine.save_checkpoint(f'sft_model_llama3_8b_final.ckpt')
 

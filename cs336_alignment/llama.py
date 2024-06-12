@@ -1,5 +1,5 @@
 from vllm import LLM, SamplingParams
-from llm import MultiLLM
+from cs336_alignment.llm import MultiLLM
 
 
 def get_llama8b() -> LLM:

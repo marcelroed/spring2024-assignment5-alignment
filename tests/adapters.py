@@ -12,6 +12,8 @@ from cs336_alignment.mmlu import parse_mmlu_response
 from cs336_alignment.gsm8k import parse_gsm8k_response
 from cs336_alignment.sft_dataset import PackedSFTDataset, iterate_batches
 
+from cs336_alignment.dpo import per_instance_dpo_loss
+
 
 def get_packed_sft_dataset(
     tokenizer: PreTrainedTokenizerBase,
@@ -141,4 +143,4 @@ def compute_per_instance_dpo_loss(
     Returns:
         torch.Tensor with the DPO loss for this example.
     """
-    raise NotImplementedError
+    return per_instance_dpo_loss(**locals())

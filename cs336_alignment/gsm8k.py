@@ -4,7 +4,7 @@ from collections import defaultdict
 import re
 from pprint import pprint
 from tqdm import tqdm
-from llama import get_llama8b_multi, greedy_sampling_params
+from cs336_alignment.llama import get_llama8b_multi, greedy_sampling_params
 
 import pandas as pd
 
