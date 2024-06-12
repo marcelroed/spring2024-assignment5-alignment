@@ -16,6 +16,7 @@ def main():
         torch_dtype=torch.bfloat16,
         attn_implementation='flash_attention_2',
     )
+    print('Finished loading model to CPU')
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
     train_dataset = PackedSFTDataset(tokenizer=tokenizer, dataset_path='data/safety_augmented_ultrachat_200k_single_turn/train.jsonl.gz', seq_length=512, shuffle=True)
     
