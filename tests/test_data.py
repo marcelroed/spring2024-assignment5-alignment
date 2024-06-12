@@ -8,6 +8,7 @@ from transformers import AutoTokenizer
 
 from .adapters import get_packed_sft_dataset, run_iterate_batches
 from .common import FIXTURES_PATH
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 

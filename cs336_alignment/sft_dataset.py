@@ -1,5 +1,5 @@
 from transformers import PreTrainedTokenizerBase, AutoTokenizer
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import torch
 
@@ -34,29 +34,65 @@ class PackedSFTDataset(Dataset):
         if shuffle:
             df = df.sample(frac=1).reset_index(drop=True)
         
-        print(df)
+        # print(df)
 
         prompts, responses = df['prompt'], df['response']
 
-        prompts_tok = self.tokenizer(prompts.tolist())
-        responses_tok = self.tokenizer(responses.tolist())
+        with open('cs336_alignment/prompts/alpaca_sft.prompt', 'r') as f:
+            prompt_template = f.read()
+            prompt_template = f'{prompt_template}{tokenizer.eos_token}'
+        
+        full_prompts = [prompt_template.format(instruction=prompt, response=response) for prompt, response in zip(prompts, responses)]
 
-        self.prompts_tok = torch.tensor(prompts_tok.input_ids)
-        self.responses_tok = torch.tensor(responses_tok.input_ids)
+        full_text = tokenizer.bos_token.join(full_prompts)
+        # print(full_text)
+
+        full_text_tok = self.tokenizer(full_text).input_ids
+        # print(type(full_text_tok))
+
+        self.tokens = torch.tensor(full_text_tok)
+        # print(self.tokens.shape)
 
         self.seq_length = seq_length
         self.shuffle = shuffle
     
     def __len__(self):
-        return len(self.prompts_tok)
+        return len(self.tokens) // self.seq_length
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int):
+        if i < 0 or i >= len(self):
+            raise IndexError
+        start_idx = i * self.seq_length
+        end_idx = start_idx + self.seq_length
         return {
-            'input_ids': self.prompts_tok[i][:self.seq_length],
-            'labels': self.responses_tok[i][:self.seq_length]
+            'input_ids': self.tokens[start_idx:end_idx],
+            'labels': self.tokens[start_idx+1:end_idx+1]
         }
         
 
+def iterate_batches(dataset: Dataset, batch_size: int, shuffle: bool):
+    """
+    Given a PyTorch Dataset, return an iterable over batches of size `batch_size`.
+    Iterating through the returned iterable should constitute one epoch over the Dataset.
+
+    Args:
+        dataset: Dataset
+            Dataset to emit batches from.
+        batch_size: int
+            Number of examples to include per batch.
+        shuffle: bool
+            If true, shuffle examples before batching them.
+
+    Returns:
+        Iterable over batches, where each batch has size `batch_size`.
+    """
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+
+
 if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3-8B')
+    print(tokenizer.decode([13]))
+    print(tokenizer.decode([627]))
+    print(tokenizer.decode([128000]))
+    print(tokenizer.decode([128001]))
     ds = PackedSFTDataset(tokenizer, 'data/safety_augmented_ultrachat_200k_single_turn/small_train.jsonl', 128, True)

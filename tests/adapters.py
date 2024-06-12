@@ -10,7 +10,7 @@ from transformers import PreTrainedTokenizerBase
 
 from cs336_alignment.mmlu import parse_mmlu_response
 from cs336_alignment.gsm8k import parse_gsm8k_response
-from cs336_alignment.sft_dataset import PackedSFTDataset
+from cs336_alignment.sft_dataset import PackedSFTDataset, iterate_batches
 
 
 def get_packed_sft_dataset(
@@ -63,7 +63,7 @@ def run_iterate_batches(
     Returns:
         Iterable over batches, where each batch has size `batch_size`.
     """
-    raise NotImplementedError
+    return iterate_batches(dataset, batch_size, shuffle)
 
 
 def run_parse_mmlu_response(
