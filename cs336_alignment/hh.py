@@ -6,11 +6,13 @@ import re
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizerBase, AutoTokenizer
 import torch
+from cs336_alignment.dpo import per_instance_dpo_loss
 
 
 class HHDataset(Dataset):
-    def __init__(self, tokenizer: PreTrainedTokenizerBase, seq_length: int, shuffle = True, dataset_path: str = 'data/hh', split: str = 'train', world_size=1, rank=0):
+    def __init__(self, *, tokenizer: PreTrainedTokenizerBase, shuffle = True, dataset_path: str = 'data/hh', split: str = 'train', chosen: bool, get_val=True):
         root_dir = Path(dataset_path)
+        chosen = 'chosen' if chosen else 'rejected'
         pretokenized_path = root_dir / f'{split}_tokenized.jsonl'
         if pretokenized_path.exists():
             df = pd.read_json(pretokenized_path, lines=True)
@@ -23,7 +25,7 @@ class HHDataset(Dataset):
                 prompt_template = f.read()
                 prompt_template = f'{prompt_template}{tokenizer.eos_token}'
             
-            full_prompts = [prompt_template.format(instruction=instruction, response=chosen_response) for instruction, chosen_response in zip(df['instruction'], df['chosen_response'])]
+            full_prompts = [prompt_template.format(instruction=instruction, response=chosen_response) for instruction, chosen_response in zip(df['instruction'], df[f'{chosen}_response'])]
             tokenized_prompts = tokenizer(full_prompts).input_ids
             df['tokenized'] = tokenized_prompts
             print(df)
@@ -33,25 +35,30 @@ class HHDataset(Dataset):
         if shuffle:
             df = df.sample(frac=1, random_state=0).reset_index(drop=True)
 
-        full_text_tok = torch.concatenate([torch.tensor(arr) for arr in df['tokenized']])
+        # full_text_tok = torch.concatenate([torch.tensor(arr) for arr in df['tokenized']])
 
-        chunk_size = len(full_text_tok) // world_size
+        # chunk_size = len(full_text_tok) // world_size
 
-        self.tokens = full_text_tok[rank * chunk_size:(rank + 1) * chunk_size]
-        self.seq_length = seq_length
+        # self.tokens = full_text_tok[rank * chunk_size:(rank + 1) * chunk_size]
+        self.tokens = [torch.tensor(arr) for arr in df['tokenized']]
+        if get_val:
+            self.tokens = self.tokens[-200:]
+        else:
+            self.tokens = self.tokens[:-200]
         self.shuffle = shuffle
 
     def __len__(self):
-        return len(self.tokens) // self.seq_length
+        return len(self.tokens)
     
-    def __getindex__(self, i: int):
+    def __getitem__(self, i: int):
         if i < 0 or i >= len(self):
             raise IndexError
-        start_idx = i * self.seq_length
-        end_idx = start_idx + self.seq_length
         return {
-            'input_ids': self.tokens[start_idx:end_idx],
-            'labels': self.tokens[start_idx+1:end_idx+1],
+            'input_ids': self.tokens[i],
+            prompt: str,
+            response_chosen: str,
+            response_rejected: str,
+            # 'labels': self.tokens[i],
         }
 
 

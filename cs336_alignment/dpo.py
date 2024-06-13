@@ -35,6 +35,10 @@ def per_instance_dpo_loss(
     Returns:
         torch.Tensor with the DPO loss for this example.
     """
+    lm_device = next(lm.parameters()).device
+    lm_ref_device = next(lm_ref.parameters()).device
+    
+
     with open('cs336_alignment/prompts/alpaca_sft.prompt', 'r') as f:
         prompt_template = f.read()
         prompt_template = f'{prompt_template}{tokenizer.eos_token}'
@@ -44,13 +48,17 @@ def per_instance_dpo_loss(
 
     chosen_tokens, rejected_tokens = tokenizer([chosen_prompt, rejected_prompt], return_tensors='pt').input_ids
 
-    chosen_ll = -lm(input_ids=chosen_tokens, labels=chosen_tokens).loss * (len(chosen_tokens) - 1)
-    rejected_ll = -lm(input_ids=rejected_tokens, labels=rejected_tokens).loss * (len(rejected_tokens) - 1)
+    lm_chosen_tokens, lm_rejected_tokens = chosen_tokens.to(lm_device), rejected_tokens.to(lm_device)
 
-    chosen_ref_ll = -lm_ref(input_ids=chosen_tokens, labels=chosen_tokens).loss * (len(chosen_tokens) - 1)
-    reject_ref_ll = -lm_ref(input_ids=rejected_tokens, labels=rejected_tokens).loss * (len(rejected_tokens) - 1)
+    lm_ref_chosen_tokens, lm_ref_rejected_tokens = chosen_tokens.to(lm_ref_device), rejected_tokens.to(lm_ref_device)
+
+    chosen_ll = -lm(input_ids=lm_chosen_tokens, labels=lm_chosen_tokens).loss * (len(chosen_tokens) - 1)
+    rejected_ll = -lm(input_ids=lm_rejected_tokens, labels=lm_rejected_tokens).loss * (len(rejected_tokens) - 1)
+
+    chosen_ref_ll = -lm_ref(input_ids=lm_ref_chosen_tokens, labels=lm_ref_chosen_tokens).loss * (len(chosen_tokens) - 1)
+    reject_ref_ll = -lm_ref(input_ids=lm_ref_rejected_tokens, labels=lm_ref_rejected_tokens).loss * (len(rejected_tokens) - 1)
 
 
-    log_core = chosen_ll - chosen_ref_ll - rejected_ll + reject_ref_ll
+    log_core = chosen_ll - chosen_ref_ll.to(lm_device) - rejected_ll + reject_ref_ll.to(lm_device)
 
     return -F.logsigmoid(beta * log_core)

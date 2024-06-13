@@ -1,5 +1,6 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+from cs336_alignment.dpo import per_instance_dpo_loss
 from cs336_alignment.hh import HHDataset
 from cs336_alignment.sft_dataset import PackedSFTDataset, iterate_batches
 import deepspeed
@@ -9,31 +10,31 @@ from tqdm import tqdm, trange
 import wandb
 import os
 from pathlib import Path
+from cs336_alignment.checkpoints import load_deepspeed_checkpoint
 
 
 
 def main():
-    n_epochs = 5
+    n_epochs = 1
     # Needs to be run with deepspeed command
     model_name = 'meta-llama/Meta-Llama-3-8B'
     rank = int(os.environ['RANK'])
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.bfloat16,
-        attn_implementation='flash_attention_2',
-    )
+    model_ref = load_deepspeed_checkpoint(device_map='cuda:1')
+    for param in model_ref.parameters():
+        param.requires_grad_(False)
+
+    model_pi = load_deepspeed_checkpoint(device_map='cuda:0')
     print('Finished loading model to CPU')
 
-
-    train_dataset = HHDataset(tokenizer=tokenizer, dataset_path='data/hh', seq_length=512, shuffle=True, world_size=8, rank=rank)
+    train_dataset = HHDataset(tokenizer=tokenizer, dataset_path='data/hh', shuffle=True, split='train', get_val=False)
     print('Loaded dataset')
 
-    microbatch_size = 4
+    microbatch_size = 1
     total_num_steps = len(train_dataset) * n_epochs // microbatch_size
-    model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, model_parameters=model.parameters(), config={
-        'train_batch_size': 32,
+    model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model_pi, model_parameters=model_pi.parameters(), config={
+        'train_batch_size': 64,
         'train_micro_batch_size_per_gpu': microbatch_size,
         # 'optimizer': {
         #     'FusedAdam': {
@@ -58,47 +59,40 @@ def main():
                 'warmup_type': 'linear',
             }
         },
-        'zero_optimization': {
-            'stage': 2,
-            'overlap_comm': True,
-            # 'zero_quantized_weights': True,
-            # 'zero_quantized_gradients': True,
-        },
+        # 'zero_optimization': {
+        #     'stage': 2,
+        #     'overlap_comm': True,
+        #     # 'zero_quantized_weights': True,
+        #     # 'zero_quantized_gradients': True,
+        # },
         'bf16': {
             'enabled': True,
         },
         'gradient_clipping': 1.0,
-
-
     })
     model_engine: deepspeed.DeepSpeedEngine
     del model
-
-    print(f'Rank: {rank}')
 
     logging_rate = 10
     valid_rate = 1000 
     rank = deepspeed.dist.get_rank()
 
     if rank == 0:
-        wandb.init(project='cs336-alignment', entity='marcelroed', name='sft_train unshifted', group='llama8b', config={
+        wandb.init(project='cs336-alignment', entity='marcelroed', name='dpo_train', group='llama8b', config={
             'model_name': model_name,
-            'batch_size': 32,
+            'batch_size': 64,
             'seq_length': 512,
-            'learning_rate': 2e-5,
+            'learning_rate': 1e-6,
             'total_num_steps': total_num_steps,
         })
 
-    if rank == 0:
-        epoch_range = trange(n_epochs, desc='Epochs')
-    else:
-        epoch_range = range(n_epochs)
+    epoch_range = trange(n_epochs, desc='Epochs')
 
-    train_dataloader = iterate_batches(train_dataset, batch_size=microbatch_size, shuffle=True)
+    train_dataloader = iterate_batches(train_dataset, batch_size=1, shuffle=True)
     
-    valid_dataset = PackedSFTDataset(tokenizer=tokenizer, dataset_path='data/safety_augmented_ultrachat_200k_single_turn/test.jsonl.gz', seq_length=512, shuffle=False, world_size=8, rank=rank)
+    valid_dataset = HHDataset(tokenizer=tokenizer, dataset_path='data/hh', shuffle=True, split='train', get_val=True)
 
-    valid_dataloader = iterate_batches(valid_dataset, batch_size=microbatch_size, shuffle=False)
+    valid_dataloader = iterate_batches(valid_dataset, batch_size=1, shuffle=False)
 
     step = 0
 
@@ -106,21 +100,15 @@ def main():
 
     best_chkpnt_path = Path('dpo_model_llama3_8b_best.ckpt')
 
-    for epoch in epoch_range:
-        if rank == 0:
-            pbar = enumerate(tqdm(train_dataloader, desc='Training'))
-        else:
-            pbar = enumerate(train_dataloader)
-        for idx, batch in pbar:
-            input_ids = batch['input_ids'].cuda()
-            # labels = batch['labels'].cuda()
+    def get_loss(lm, lm_ref):
+        return per_instance_dpo_loss(lm=lm, lm_ref=lm_ref, tokenizer=tokenizer, beta=0.1)
 
-            outputs = model_engine(input_ids=input_ids, labels=input_ids)
-            loss = outputs.loss
+    for epoch in epoch_range:
+        pbar = enumerate(tqdm(train_dataloader, desc='Training'))
+        for idx, batch in pbar:
+            loss = get_loss(model_engine, model_ref)
 
             model_engine.backward(loss)
-            del outputs
-            # del labels
             del input_ids
 
             model_engine.step()
