@@ -44,11 +44,12 @@ def per_instance_dpo_loss(
 
     chosen_tokens, rejected_tokens = tokenizer([chosen_prompt, rejected_prompt], return_tensors='pt').input_ids
 
-    chosen_ll = -lm(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss * len(chosen_tokens)
-    rejected_ll = -lm(input_ids=rejected_tokens[:-1], labels=rejected_tokens[1:]).loss * len(rejected_tokens)
+    chosen_ll = -lm(input_ids=chosen_tokens, labels=chosen_tokens).loss * (len(chosen_tokens) - 1)
+    rejected_ll = -lm(input_ids=rejected_tokens, labels=rejected_tokens).loss * (len(rejected_tokens) - 1)
 
-    chosen_ref_ll = -lm_ref(input_ids=chosen_tokens[:-1], labels=chosen_tokens[1:]).loss * len(chosen_tokens)
-    reject_ref_ll = -lm_ref(input_ids=rejected_tokens[:-1], labels=rejected_tokens[1:]).loss * len(rejected_tokens)
+    chosen_ref_ll = -lm_ref(input_ids=chosen_tokens, labels=chosen_tokens).loss * (len(chosen_tokens) - 1)
+    reject_ref_ll = -lm_ref(input_ids=rejected_tokens, labels=rejected_tokens).loss * (len(rejected_tokens) - 1)
+
 
     log_core = chosen_ll - chosen_ref_ll - rejected_ll + reject_ref_ll
 

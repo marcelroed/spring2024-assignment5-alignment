@@ -97,6 +97,7 @@ def main():
 
     valid_dataloader = iterate_batches(valid_dataset, batch_size=microbatch_size, shuffle=False)
 
+    step = 0
 
     for epoch in epoch_range:
         if rank == 0:
@@ -116,9 +117,10 @@ def main():
             del input_ids
 
             model_engine.step()
-            if rank == 0 and (idx % logging_rate == 0):
-                wandb.log({'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']}, step=idx + epoch * len(train_dataset) // microbatch_size)
+            log_dict = {}
             if idx % valid_rate == 0:
+                log_dict.update(**{'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']})
+                del loss
                 loss_values = []
                 if rank == 0:
                     val_pbar = tqdm(valid_dataloader, desc='Computing validation loss')
@@ -139,9 +141,14 @@ def main():
                     del val_labels
                     del val_input_ids
                 if rank == 0:
-                    wandb.log({'valid_loss': torch.mean(torch.tensor(loss_values))}, step=idx + epoch * len(train_dataset) // microbatch_size)
+                    log_dict.update(**{'valid_loss': torch.mean(torch.tensor(loss_values))})
+                    wandb.log(log_dict)
                 del loss_values
-            del loss
+            elif rank == 0 and idx % logging_rate == 0:
+                log_dict.update(**{'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']})
+                del loss
+                wandb.log(log_dict, step=step)
+            step += 1
 
         print(f'Rank {rank} finished epoch {epoch} after {idx} microbatches')
     model_engine.save_checkpoint(f'sft_model_llama3_8b_final.ckpt')
