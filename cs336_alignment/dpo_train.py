@@ -1,8 +1,9 @@
-import shutil
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+from cs336_alignment.hh import HHDataset
 from cs336_alignment.sft_dataset import PackedSFTDataset, iterate_batches
 import deepspeed
+import shutil
 from itertools import islice
 from tqdm import tqdm, trange
 import wandb
@@ -26,7 +27,7 @@ def main():
     print('Finished loading model to CPU')
 
 
-    train_dataset = PackedSFTDataset(tokenizer=tokenizer, dataset_path='data/safety_augmented_ultrachat_200k_single_turn/train.jsonl', seq_length=512, shuffle=True, world_size=8, rank=rank)
+    train_dataset = HHDataset(tokenizer=tokenizer, dataset_path='data/hh', seq_length=512, shuffle=True, world_size=8, rank=rank)
     print('Loaded dataset')
 
     microbatch_size = 4
@@ -103,7 +104,7 @@ def main():
 
     best_val_loss = float('inf')
 
-    best_chkpnt_path = Path('sft_model_llama3_8b_unshifted_best.ckpt')
+    best_chkpnt_path = Path('dpo_model_llama3_8b_best.ckpt')
 
     for epoch in epoch_range:
         if rank == 0:
