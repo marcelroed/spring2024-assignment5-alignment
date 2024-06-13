@@ -10,27 +10,11 @@ from cs336_alignment.dpo import per_instance_dpo_loss
 
 
 class HHDataset(Dataset):
-    def __init__(self, *, tokenizer: PreTrainedTokenizerBase, shuffle = True, dataset_path: str = 'data/hh', split: str = 'train', chosen: bool, get_val=True):
+    def __init__(self, *, shuffle = True, dataset_path: str = 'data/hh', split: str = 'train', get_val=True):
         root_dir = Path(dataset_path)
-        chosen = 'chosen' if chosen else 'rejected'
-        pretokenized_path = root_dir / f'{split}_tokenized.jsonl'
-        if pretokenized_path.exists():
-            df = pd.read_json(pretokenized_path, lines=True)
-        else:
-            dfs = _get_hh_dataframes(root_dir=root_dir)
-            df = dfs[split]
-            
-            # Tokenize the data
-            with open('cs336_alignment/prompts/alpaca_sft.prompt', 'r') as f:
-                prompt_template = f.read()
-                prompt_template = f'{prompt_template}{tokenizer.eos_token}'
-            
-            full_prompts = [prompt_template.format(instruction=instruction, response=chosen_response) for instruction, chosen_response in zip(df['instruction'], df[f'{chosen}_response'])]
-            tokenized_prompts = tokenizer(full_prompts).input_ids
-            df['tokenized'] = tokenized_prompts
-            print(df)
-            df = df[['tokenized']]
-            df.to_json(pretokenized_path, orient='records', lines=True)
+
+        dfs = _get_hh_dataframes(root_dir=root_dir)
+        df = dfs[split]
 
         if shuffle:
             df = df.sample(frac=1, random_state=0).reset_index(drop=True)
@@ -40,25 +24,29 @@ class HHDataset(Dataset):
         # chunk_size = len(full_text_tok) // world_size
 
         # self.tokens = full_text_tok[rank * chunk_size:(rank + 1) * chunk_size]
-        self.tokens = [torch.tensor(arr) for arr in df['tokenized']]
+        # print(f'full: {df.head()=}')
         if get_val:
-            self.tokens = self.tokens[-200:]
+            self.data = df.iloc[-200:]
         else:
-            self.tokens = self.tokens[:-200]
+            self.data = df.iloc[:-200]
+        # print(f'{self.data.head()=}')
         self.shuffle = shuffle
 
     def __len__(self):
-        return len(self.tokens)
+        return len(self.data)
     
     def __getitem__(self, i: int):
         if i < 0 or i >= len(self):
             raise IndexError
+
+        row = self.data.iloc[i]
+
+        # print(f'{row=}')
+
         return {
-            'input_ids': self.tokens[i],
-            prompt: str,
-            response_chosen: str,
-            response_rejected: str,
-            # 'labels': self.tokens[i],
+            'prompt': row['instruction'],
+            'response_chosen': row['chosen_response'],
+            'response_rejected': row['rejected_response'],
         }
 
 
