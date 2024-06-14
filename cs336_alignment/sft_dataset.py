@@ -29,7 +29,7 @@ class PackedSFTDataset(Dataset):
         self.tokenizer = tokenizer
         self.dataset_path = dataset_path
 
-        if dataset_path.endswith('safety_augmented_ultrachat_200k_single_turn/train.jsonl'):
+        if str(dataset_path).endswith('safety_augmented_ultrachat_200k_single_turn/train.jsonl'):
             df = pd.read_json('data/safety_augmented_ultrachat_200k_single_turn/train_tokenized.jsonl', lines=True)
         else:  # Pretokenized in this case
             df = pd.read_json(dataset_path, dtype={'prompt': str, 'response': str}, lines=True)

@@ -167,3 +167,8 @@ cython_debug/
 #.idea/
 
 wandb/
+
+*.ckpt/
+*.ckpt
+*model_llama*/
+*.zip

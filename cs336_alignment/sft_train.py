@@ -1,3 +1,4 @@
+import shutil
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 from cs336_alignment.sft_dataset import PackedSFTDataset, iterate_batches
@@ -6,6 +7,7 @@ from itertools import islice
 from tqdm import tqdm, trange
 import wandb
 import os
+from pathlib import Path
 
 
 
@@ -26,9 +28,9 @@ def main():
 
     train_dataset = PackedSFTDataset(tokenizer=tokenizer, dataset_path='data/safety_augmented_ultrachat_200k_single_turn/train.jsonl', seq_length=512, shuffle=True, world_size=8, rank=rank)
     print('Loaded dataset')
-    total_num_steps = len(train_dataset) * n_epochs
 
     microbatch_size = 4
+    total_num_steps = len(train_dataset) * n_epochs // microbatch_size
     model_engine, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, model_parameters=model.parameters(), config={
         'train_batch_size': 32,
         'train_micro_batch_size_per_gpu': microbatch_size,
@@ -78,7 +80,7 @@ def main():
     rank = deepspeed.dist.get_rank()
 
     if rank == 0:
-        wandb.init(project='cs336-alignment', entity='marcelroed', name='sft_train', group='llama8b', config={
+        wandb.init(project='cs336-alignment', entity='marcelroed', name='sft_train unshifted', group='llama8b', config={
             'model_name': model_name,
             'batch_size': 32,
             'seq_length': 512,
@@ -97,6 +99,11 @@ def main():
 
     valid_dataloader = iterate_batches(valid_dataset, batch_size=microbatch_size, shuffle=False)
 
+    step = 0
+
+    best_val_loss = float('inf')
+
+    best_chkpnt_path = Path('sft_model_llama3_8b_unshifted_best.ckpt')
 
     for epoch in epoch_range:
         if rank == 0:
@@ -105,20 +112,21 @@ def main():
             pbar = enumerate(train_dataloader)
         for idx, batch in pbar:
             input_ids = batch['input_ids'].cuda()
-            labels = batch['labels'].cuda()
+            # labels = batch['labels'].cuda()
 
-            outputs = model_engine(input_ids=input_ids, labels=labels)
+            outputs = model_engine(input_ids=input_ids, labels=input_ids)
             loss = outputs.loss
 
             model_engine.backward(loss)
             del outputs
-            del labels
+            # del labels
             del input_ids
 
             model_engine.step()
-            if rank == 0 and (idx % logging_rate == 0):
-                wandb.log({'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']}, step=idx + epoch * len(train_dataset) // microbatch_size)
+            log_dict = {}
             if idx % valid_rate == 0:
+                log_dict.update(**{'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']})
+                del loss
                 loss_values = []
                 if rank == 0:
                     val_pbar = tqdm(valid_dataloader, desc='Computing validation loss')
@@ -127,24 +135,37 @@ def main():
 
                 for val_idx, val_batch in enumerate(val_pbar):
                     val_input_ids = val_batch['input_ids'].cuda()
-                    val_labels = val_batch['labels'].cuda()
+                    # val_labels = val_batch['labels'].cuda()
 
-                    val_outputs = model_engine(input_ids=val_input_ids, labels=val_labels)
+                    val_outputs = model_engine(input_ids=val_input_ids, labels=val_input_ids)
                     val_loss = val_outputs.loss.detach()
 
                     deepspeed.dist.all_reduce(val_loss, op=deepspeed.dist.ReduceOp.AVG)
                     loss_values.append(val_loss)
 
                     del val_outputs
-                    del val_labels
+                    # del val_labels
                     del val_input_ids
+                val_loss = torch.mean(torch.tensor(loss_values))
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    if rank == 0:
+                        if best_chkpnt_path.exists():
+                            shutil.rmtree(best_chkpnt_path)
+                    deepspeed.dist.barrier()
+                    model_engine.save_checkpoint(str(best_chkpnt_path))
                 if rank == 0:
-                    wandb.log({'valid_loss': torch.mean(torch.tensor(loss_values))}, step=idx + epoch * len(train_dataset) // microbatch_size)
+                    log_dict.update(**{'valid_loss': torch.mean(torch.tensor(loss_values))})
+                    wandb.log(log_dict)
                 del loss_values
-            del loss
+            elif rank == 0 and idx % logging_rate == 0:
+                log_dict.update(**{'loss': loss.item(), 'learning_rate': optimizer.param_groups[0]['lr']})
+                del loss
+                wandb.log(log_dict, step=step)
+            step += 1
 
         print(f'Rank {rank} finished epoch {epoch} after {idx} microbatches')
-    model_engine.save_checkpoint(f'sft_model_llama3_8b_final.ckpt')
+    # model_engine.save_checkpoint(f'sft_model_llama3_8b_unshifted_final.ckpt')
 
 
 

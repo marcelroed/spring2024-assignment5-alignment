@@ -4,7 +4,7 @@ from collections import defaultdict
 import re
 from pprint import pprint
 from tqdm import tqdm
-from cs336_alignment.llama import get_llama8b_multi, greedy_sampling_params
+from cs336_alignment.llama import get_llama8b_dpo_multi, get_llama8b_multi, greedy_sampling_params
 
 import pandas as pd
 
@@ -91,9 +91,12 @@ class GSM8K:
 
 
 def main():
+    from cs336_alignment.llama import get_llama8b_sft_multi
     gsm8k = GSM8K()
     print(gsm8k.data['test'].head())
-    llm = get_llama8b_multi(num_gpus=1)
+    # llm = get_llama8b_multi(num_gpus=1)
+    # llm = get_llama8b_sft_multi(num_gpus=1)
+    llm = get_llama8b_dpo_multi(num_gpus=1)
 
     llm_closure = lambda prompts: [output.outputs[0].text for output in llm.init_and_generate(prompts, greedy_sampling_params)]
 
