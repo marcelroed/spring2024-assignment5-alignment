@@ -8,6 +8,9 @@ def get_llama8b() -> LLM:
 def get_llama8b_multi(num_gpus: int = 8) -> MultiLLM:
     return MultiLLM(model_name="meta-llama/Meta-Llama-3-8B", num_gpus=num_gpus)
 
+def get_llama8b_sft_multi(num_gpus: int = 8) -> MultiLLM:
+    return MultiLLM(model_name='./')
+
 
 # Create a sampling params object, stopping generation on newline.
 greedy_sampling_params = SamplingParams(
