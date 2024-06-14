@@ -4,7 +4,7 @@ import re
 from pprint import pprint
 from tqdm import tqdm
 import pandas as pd
-from llama import get_llama8b_multi, greedy_sampling_params
+from llama import get_llama8b_dpo_multi, get_llama8b_multi, get_llama8b_sft_multi, greedy_sampling_params
 
 
 class SST:
@@ -62,14 +62,16 @@ class SST:
         out_dir = Path('output/')
         out_dir.mkdir(exist_ok=True)
 
-        result_df.to_json(out_dir / 'sst_llama8b.jsonl', orient='records', lines=True)
+        result_df.to_json(out_dir / 'sst_llama8b_dpo.jsonl', orient='records', lines=True)
 
 
 
 def main():
     sst = SST()
     # print(gsm8k.data['test'].head())
-    llm = get_llama8b_multi(num_gpus=8)
+    # llm = get_llama8b_multi(num_gpus=8)
+    # llm = get_llama8b_sft_multi(num_gpus=1)
+    llm = get_llama8b_dpo_multi(num_gpus=1)
 
     llm_closure = lambda prompts: [output.outputs[0].text for output in llm.init_and_generate(prompts, greedy_sampling_params)]
 

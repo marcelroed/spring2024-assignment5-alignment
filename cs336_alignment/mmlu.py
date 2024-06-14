@@ -6,6 +6,8 @@ import re
 from tqdm import tqdm
 from pprint import pprint
 
+from cs336_alignment.llama import get_llama8b_dpo_multi
+
 # Single capitalized letter from A to D (can be followed with any punctiation or whitespace, just no other letters on either side)
 ANSWER_RE = re.compile(r'(?<![A-z])[A-D](?![A-z])')
 
@@ -100,10 +102,10 @@ class MMLU:
         print(f'Invalid responses: {sum(not valid for valid in is_valid_response)}/{len(is_valid_response)}')
         print(f'Accuracy: {sum(is_correct_response) / len(is_correct_response)}')
         print()
-        print(result_df[result_df['parsed_response'].isnull()])
+        print(result_df[result_df['parsed_response'].isnull()].iloc[:5])
 
         incorrect_samples = result_df[result_df['correct'] == False].sample(10)
-        for idx, row in incorrect_samples.iterrows():
+        for idx, row in incorrect_samples.iloc[:5].iterrows():
             prompt = row['prompt'].replace('\n', r'\ ').replace('$', r'\$').replace('_', r'\_')
             print(f'[${idx}$], [{prompt}], [{row["response"].strip()}], [{row["parsed_response"]}], [{row["answer"]}],')
 
@@ -111,11 +113,13 @@ class MMLU:
 
 
 def run_llama_zero_shot():
-    from cs336_alignment.llama import get_llama8b_multi, greedy_sampling_params
+    from cs336_alignment.llama import get_llama8b_multi, greedy_sampling_params, get_llama8b_sft_multi
     # mmlu = MMLU('data/mmlu/')
     # print(mmlu.get_keys())
     # print(mmlu.format_prompt(mmlu.get_subject('virology')[0]))
-    llm = get_llama8b_multi()
+    # llm = get_llama8b_multi()
+    # llm = get_llama8b_sft_multi()
+    llm = get_llama8b_dpo_multi()
     llm_closure = lambda ss: [output.outputs[0].text for output in llm.init_and_generate(ss, greedy_sampling_params)]
 
     mmlu = MMLU('data/mmlu/')

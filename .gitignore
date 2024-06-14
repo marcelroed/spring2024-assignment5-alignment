@@ -170,3 +170,5 @@ wandb/
 
 *.ckpt/
 *.ckpt
+*model_llama*/
+*.zip

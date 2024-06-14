@@ -4,7 +4,7 @@ import re
 from pprint import pprint
 from tqdm import tqdm
 import pandas as pd
-from llama import get_llama8b_multi, greedy_sampling_params
+from llama import get_llama8b_dpo_multi, get_llama8b_multi, get_llama8b_sft_multi, greedy_sampling_params
 
 
 class AlpacaEval:
@@ -40,7 +40,7 @@ class AlpacaEval:
 
         responses = llm_closure(all_prompts)
         result_df['output'] = responses
-        result_df['generator'] = ['llama8b'] * len(responses)
+        result_df['generator'] = ['llama8b_dpo'] * len(responses)
         pprint(responses[:5])
         # parsed_responses = [response for row, response in zip(tqdm(all_rows), responses)]
         # result_df['parsed_response'] = parsed_responses
@@ -62,14 +62,16 @@ class AlpacaEval:
         out_dir = Path('output/')
         out_dir.mkdir(exist_ok=True)
 
-        result_df.to_json(out_dir / 'alpaca_eval_llama8b.json', orient='records', lines=False)
+        result_df.to_json(out_dir / 'alpaca_eval_llama8b_dpo.json', orient='records', lines=False)
 
 
 
 def main():
     alpaca_eval = AlpacaEval()
     # print(gsm8k.data['test'].head())
-    llm = get_llama8b_multi(num_gpus=8)
+    # llm = get_llama8b_multi(num_gpus=8)
+    # llm = get_llama8b_sft_multi(num_gpus=8)
+    llm = get_llama8b_dpo_multi(num_gpus=7)
 
     llm_closure = lambda prompts: [output.outputs[0].text for output in llm.init_and_generate(prompts, greedy_sampling_params)]
 

@@ -8,8 +8,14 @@ def get_llama8b() -> LLM:
 def get_llama8b_multi(num_gpus: int = 8) -> MultiLLM:
     return MultiLLM(model_name="meta-llama/Meta-Llama-3-8B", num_gpus=num_gpus)
 
+def get_llama8b_sft() -> LLM:
+    return LLM(model='./sft_model_llama3_8b_hf/', tokenizer='meta-llama/Meta-Llama-3-8B', dtype='bfloat16')
+
 def get_llama8b_sft_multi(num_gpus: int = 8) -> MultiLLM:
-    return MultiLLM(model_name='./')
+    return MultiLLM(model_name='./sft_model_llama3_8b_hf/', tokenizer='meta-llama/Meta-Llama-3-8B', num_gpus=num_gpus)
+
+def get_llama8b_dpo_multi(num_gpus: int = 8) -> MultiLLM:
+    return MultiLLM(model_name='./dpo_model_llama3_8b_hf/', tokenizer='meta-llama/Meta-Llama-3-8B', num_gpus=num_gpus)
 
 
 # Create a sampling params object, stopping generation on newline.

@@ -2,11 +2,11 @@
 set -euo pipefail
 
 echo "Creating virtual environment to run tests"
-python3 -m venv ./336_a5_test_venv
+uv venv ./336_a5_test_venv
 source ./336_a5_test_venv/bin/activate
 echo "Installing requirements"
-pip install wheel setuptools pip --upgrade
-pip install -e .'[test]'
+uv pip install wheel setuptools pip --upgrade
+uv pip install -e .'[test]'
 echo "Running tests"
 pytest -v ./tests --junitxml=test_results.xml || true
 echo "Done running tests"
@@ -36,6 +36,11 @@ zip -r "$output_file" . \
     -x ./data/\* \
     -x '*.out' \
     -x '*.err' \
-    -x '.git*'
+    -x '.git*' \
+    -x '.venv/*' \
+    -x 'cutlass/*' \
+    -x 'wandb/*' \
+    -x '*.bin' \
+    -x '*.ckpt'
 
 echo "All files have been compressed into $output_file"
